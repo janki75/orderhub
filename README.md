@@ -265,17 +265,19 @@ real email content).
 
 ## Limitations and improvements with more time
 
-- No order cancellation or refund flow.
-- No payment gateway integration (the queued job only simulates processing).
-- No product search, filtering, or admin management endpoints.
-- No account registration or password reset, only login. A demo user is
-  seeded to log in with.
-- Single currency, no tax, shipping cost, or discount handling. Adding this
-  would mean introducing pricing rules and new columns on the order (subtotal,
-  tax, shipping cost, discount) rather than deriving everything from
-  `total_amount`.
-- The product row lock that prevents overselling under concurrent requests
-  is not exercised by an automated test, since simulating two real
-  concurrent database connections inside a single synchronous test run is
-  impractical. With more time this would be worth covering with a
-  multi-process or multi-connection test.
+With more time, here is what I would build on top of this:
+
+- **Order cancellation and refund flow**, restoring stock when a pending
+  order is cancelled, with its own state transitions and tests.
+- **Real payment gateway integration**, in place of the simulated
+  processing step currently in the queued job.
+- **Product search, filtering, and admin management endpoints**, so the
+  catalog can be maintained through the API rather than the seeder.
+- **A fuller account lifecycle**: registration and password reset alongside
+  the login endpoint that exists today.
+- **Pricing rules for tax, shipping cost, and discounts**, with their own
+  columns on the order, instead of `total_amount` being a straight sum of
+  the items.
+- **A multi-process or multi-connection test** that exercises the product
+  row lock directly under real simultaneous requests, to prove the
+  concurrency safety with a test rather than by reading the code path.
