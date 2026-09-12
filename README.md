@@ -49,6 +49,10 @@ worker in a separate terminal to see orders move from pending to completed:
 php artisan queue:work
 ```
 
+Once the job runs, it sends an order confirmation email to the order's
+owner. `MAIL_MAILER` is set to `log`, so no real mail server is needed to
+see it locally, the message is written to `storage/logs/laravel.log`.
+
 ## API endpoints
 
 | Method | Endpoint              | Purpose                                      |
@@ -219,6 +223,13 @@ order's owner, and Laravel resolves it automatically by convention since it
 lives in `App\Policies` under the matching name. This keeps the
 authorization rule in one place instead of repeated inline checks.
 
+**The queued job sends a confirmation email after marking the order
+completed.** This is the natural second responsibility for that job, order
+processing finishing is exactly the moment a customer should be told about
+it, and it is queued rather than sent inline for the same reason the rest
+of the processing step is queued: it is not something the original request
+needs to wait on.
+
 ## How to run the tests
 
 ```bash
@@ -247,13 +258,24 @@ surfaces as a clear message, a user can view their own order by
 order_number, a user gets 403 viewing someone else's order, a nonexistent
 order_number returns 404, and no response ever exposes an internal id.
 
+`tests/Feature/ProcessOrderJobTest.php` covers the queued job directly:
+running it marks the order completed and sends the confirmation email to
+the order's owner (asserted with `Notification::fake()`, not by checking
+real email content).
 
 ## Limitations and improvements with more time
 
 - No order cancellation or refund flow.
 - No payment gateway integration (the queued job only simulates processing).
 - No product search, filtering, or admin management endpoints.
+- No account registration or password reset, only login. A demo user is
+  seeded to log in with.
 - Single currency, no tax, shipping cost, or discount handling. Adding this
   would mean introducing pricing rules and new columns on the order (subtotal,
   tax, shipping cost, discount) rather than deriving everything from
   `total_amount`.
+- The product row lock that prevents overselling under concurrent requests
+  is not exercised by an automated test, since simulating two real
+  concurrent database connections inside a single synchronous test run is
+  impractical. With more time this would be worth covering with a
+  multi-process or multi-connection test.

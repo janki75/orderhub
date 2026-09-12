@@ -27,10 +27,10 @@ test('an authenticated user can create an order', function () {
     ]);
 
     $response->assertStatus(201)
-        ->assertJsonPath('total_amount', '200.00')
-        ->assertJsonPath('status', 'pending')
-        ->assertJsonCount(1, 'items')
-        ->assertJsonMissingPath('id');
+        ->assertJsonPath('data.total_amount', '200.00')
+        ->assertJsonPath('data.status', 'pending')
+        ->assertJsonCount(1, 'data.items')
+        ->assertJsonMissingPath('data.id');
 });
 
 test('order creation fails validation with no items', function () {
@@ -96,7 +96,7 @@ test('a user can view their own order by order number', function () {
 
     $response = $this->getJson("/api/orders/{$order->order_number}");
 
-    $response->assertStatus(200)->assertJsonPath('order_number', $order->order_number);
+    $response->assertStatus(200)->assertJsonPath('data.order_number', $order->order_number);
 });
 
 test('a user cannot view another users order', function () {

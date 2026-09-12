@@ -18,7 +18,7 @@ class OrderService
      * product. Products are referenced by SKU, not the internal database
      * id, since the id is never exposed outside the application.
      *
-     * @param array<int, array{sku: string, quantity: int}> $items
+     * @param  array<int, array{sku: string, quantity: int}>  $items
      */
     public function createOrder(User $user, array $items): Order
     {
@@ -87,7 +87,7 @@ class OrderService
      * than a valid order) and sort by sku so product rows are always locked
      * in the same order across requests.
      *
-     * @param array<int, array{sku: string, quantity: int}> $items
+     * @param  array<int, array{sku: string, quantity: int}>  $items
      * @return array<int, array{sku: string, quantity: int}>
      */
     private function normalizeItems(array $items): array
