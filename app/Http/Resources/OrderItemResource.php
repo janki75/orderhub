@@ -1,0 +1,23 @@
+<?php
+
+namespace App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class OrderItemResource extends JsonResource
+{
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            'sku' => $this->whenLoaded('product', fn () => $this->product->sku),
+            'product_name' => $this->whenLoaded('product', fn () => $this->product->name),
+            'quantity' => $this->quantity,
+            'unit_price' => $this->unit_price,
+            'subtotal' => $this->subtotal,
+        ];
+    }
+}

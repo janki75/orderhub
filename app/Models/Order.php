@@ -36,4 +36,13 @@ class Order extends Model
     {
         return $this->hasMany(OrderItem::class);
     }
+
+    /**
+     * Route bind by order_number, not the internal id, so /api/orders/{order}
+     * never exposes or accepts the raw database id.
+     */
+    public function getRouteKeyName(): string
+    {
+        return 'order_number';
+    }
 }

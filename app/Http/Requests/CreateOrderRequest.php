@@ -18,7 +18,7 @@ class CreateOrderRequest extends FormRequest
     {
         return [
             'items' => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'integer', 'exists:products,id', 'distinct'],
+            'items.*.sku' => ['required', 'string', 'exists:products,sku', 'distinct'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
         ];
     }

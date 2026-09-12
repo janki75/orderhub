@@ -53,9 +53,32 @@ php artisan queue:work
 
 | Method | Endpoint              | Purpose                                      |
 |--------|------------------------|-----------------------------------------------|
+| POST   | `/api/login`           | Exchange email and password for an API token |
 | GET    | `/api/products`        | List available products (paginated)          |
-| POST   | `/api/orders`          | Create an order from product and quantity pairs |
-| GET    | `/api/orders/{order}`  | View a single order (only the owner can see it) |
+| POST   | `/api/orders`          | Create an order from product SKU and quantity pairs |
+| GET    | `/api/orders/{order_number}` | View a single order (only the owner can see it) |
+
+All endpoints except `/api/login` require a `Authorization: Bearer <token>`
+header. The seeded demo user logs in with `demo@example.com` and password
+`password`:
+
+```bash
+curl -X POST http://localhost:8000/api/login \
+  -H "Accept: application/json" \
+  -d "email=demo@example.com" \
+  -d "password=password"
+```
+
+Creating an order takes a product's `sku` (from `GET /api/products`), not its
+internal id:
+
+```bash
+curl -X POST http://localhost:8000/api/orders \
+  -H "Authorization: Bearer <token>" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{"items": [{"sku": "LOG-12345", "quantity": 2}]}'
+```
 
 ## Scope
 
@@ -95,6 +118,17 @@ as a reference, since it exposes how many orders exist and is guessable.
 mass assignable, so it can only ever be set by the system, never by request
 input.
 
+**Neither `products.id` nor `orders.id` is ever exposed or accepted by the
+API.** `GET /api/orders/{order_number}` looks orders up by `order_number`,
+and order creation looks products up by `sku`. Both endpoints reject the
+internal id entirely, since it should never leave the application. This was
+a deliberate choice over adding a package like hashids to obfuscate the raw
+id: hashids only hides a number, it does not replace real authorization
+(the ownership policy still has to exist regardless), and the result is
+meaningless to a human. SKU and order_number are real business identifiers
+that a customer or support agent can actually reference, and both already
+existed for other reasons, so no extra dependency was needed.
+
 **No subtotal, tax, shipping cost, or discount columns.** The feature
 currently does not cover tax, shipping, or discount logic, so these columns
 were left out rather than storing values that would always be zero.
@@ -108,11 +142,17 @@ these fields would capture input that is never read or acted on again.
 Collecting address data without a feature that uses it is worse practice
 than leaving it out.
 
-**Each product_id in an order request is assumed to be unique.** It is
-assumed that the frontend or calling client already merges a repeated
-product into a single line with a combined quantity, the way a normal cart
-does before checkout. This API does not merge duplicate product_id entries
-itself, it rejects the request if the same product appears twice.
+**Each product in an order request is assumed to be unique.** It is assumed
+that the frontend or calling client already merges a repeated product into
+a single line with a combined quantity, the way a normal cart does before
+checkout. This API does not merge duplicate line items itself, it rejects
+the request if the same product's sku appears twice.
+
+**There is no registration endpoint.** Authentication is handled with
+Sanctum tokens through a single login endpoint, and the seeder creates a
+demo user to log in with. Building account registration, password resets,
+and similar account management is a separate concern from order processing
+and was left out.
 
 **No cancel or refund flow.** Cancelling an order and restoring stock has
 its own state transitions and its own tests, and would not add anything new
@@ -147,19 +187,18 @@ the order) live somewhere that can be tested directly and reused if needed.
 typos or invalid status values ending up in the database, since the set of
 valid values is defined once in code.
 
-**Product rows are locked in a consistent order (ascending product_id)
+**Product rows are locked in a consistent order (ascending sku)
 within a single order.** If two multi-item orders locked the same products
 in a different order from each other, they could deadlock. Sorting by
-product_id first means every request locks rows in the same sequence.
+sku first means every request locks rows in the same sequence.
 
-**A product can only appear once per order request.** A real cart should 
+**A product can only appear once per order request.** A real cart should
 merge duplicate items into a single line with a combined quantity before
-checkout, so a request with the same product_id twice means the client has
-a bug, not a valid order. It is rejected rather than silently merged: once
-at the request validation layer (a distinct rule on items.*.product_id, so
-the caller gets a normal 422 validation error), and again inside the
-service itself as a safety net for any other caller that skips that
-validation.
+checkout, so a request with the same sku twice means the client has a bug,
+not a valid order. It is rejected rather than silently merged: once at the
+request validation layer (a distinct rule on items.*.sku, so the caller
+gets a normal 422 validation error), and again inside the service itself as
+a safety net for any other caller that skips that validation.
 
 **Item quantity is checked to be at least 1 inside the service, not only in
 the FormRequest.** Eloquent's decrement() negates whatever value it is
@@ -173,6 +212,12 @@ dedicated exception with its own render method**, rather than being handled
 with manual response building in the controller. This keeps the service
 focused on business logic while still returning a clear 422 with a specific
 message.
+
+**Order ownership is enforced with a policy, not a manual check in the
+controller.** `OrderPolicy::view()` compares the authenticated user to the
+order's owner, and Laravel resolves it automatically by convention since it
+lives in `App\Policies` under the matching name. This keeps the
+authorization rule in one place instead of repeated inline checks.
 
 ## How to run the tests
 

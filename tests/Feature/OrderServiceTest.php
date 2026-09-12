@@ -22,7 +22,7 @@ test('creates an order with the correct total and decreases stock', function () 
     $product = Product::factory()->create(['price' => 100, 'stock' => 10]);
 
     $order = $this->service->createOrder($user, [
-        ['product_id' => $product->id, 'quantity' => 3],
+        ['sku' => $product->sku, 'quantity' => 3],
     ]);
 
     expect($order->total_amount)->toEqual(300)
@@ -40,7 +40,7 @@ test('dispatches the ProcessOrder job after creating an order', function () {
     $product = Product::factory()->create(['stock' => 5]);
 
     $order = $this->service->createOrder($user, [
-        ['product_id' => $product->id, 'quantity' => 1],
+        ['sku' => $product->sku, 'quantity' => 1],
     ]);
 
     Queue::assertPushed(ProcessOrder::class, fn ($job) => $job->order->is($order));
@@ -53,7 +53,7 @@ test('throws and leaves stock unchanged when stock is insufficient', function ()
     $product = Product::factory()->create(['stock' => 2]);
 
     expect(fn () => $this->service->createOrder($user, [
-        ['product_id' => $product->id, 'quantity' => 5],
+        ['sku' => $product->sku, 'quantity' => 5],
     ]))->toThrow(OrderCreationException::class);
 
     $this->assertDatabaseHas('products', ['id' => $product->id, 'stock' => 2]);
@@ -68,7 +68,7 @@ test('throws when the product is inactive', function () {
     $product = Product::factory()->inactive()->create(['stock' => 10]);
 
     expect(fn () => $this->service->createOrder($user, [
-        ['product_id' => $product->id, 'quantity' => 1],
+        ['sku' => $product->sku, 'quantity' => 1],
     ]))->toThrow(OrderCreationException::class);
 
     $this->assertDatabaseCount('orders', 0);
@@ -82,8 +82,8 @@ test('rolls back everything when one item in the order fails', function () {
     $outOfStock = Product::factory()->create(['stock' => 1]);
 
     expect(fn () => $this->service->createOrder($user, [
-        ['product_id' => $available->id, 'quantity' => 2],
-        ['product_id' => $outOfStock->id, 'quantity' => 5],
+        ['sku' => $available->sku, 'quantity' => 2],
+        ['sku' => $outOfStock->sku, 'quantity' => 5],
     ]))->toThrow(OrderCreationException::class);
 
     $this->assertDatabaseHas('products', ['id' => $available->id, 'stock' => 10]);
@@ -98,8 +98,8 @@ test('throws when the same product is listed twice', function () {
     $product = Product::factory()->create(['stock' => 10]);
 
     expect(fn () => $this->service->createOrder($user, [
-        ['product_id' => $product->id, 'quantity' => 2],
-        ['product_id' => $product->id, 'quantity' => 3],
+        ['sku' => $product->sku, 'quantity' => 2],
+        ['sku' => $product->sku, 'quantity' => 3],
     ]))->toThrow(OrderCreationException::class);
 
     $this->assertDatabaseHas('products', ['id' => $product->id, 'stock' => 10]);
@@ -125,7 +125,7 @@ test('throws when quantity is zero', function () {
     $product = Product::factory()->create(['stock' => 10]);
 
     expect(fn () => $this->service->createOrder($user, [
-        ['product_id' => $product->id, 'quantity' => 0],
+        ['sku' => $product->sku, 'quantity' => 0],
     ]))->toThrow(OrderCreationException::class);
 
     $this->assertDatabaseHas('products', ['id' => $product->id, 'stock' => 10]);
@@ -141,7 +141,7 @@ test('throws when quantity is negative', function () {
     $product = Product::factory()->create(['stock' => 10]);
 
     expect(fn () => $this->service->createOrder($user, [
-        ['product_id' => $product->id, 'quantity' => -3],
+        ['sku' => $product->sku, 'quantity' => -3],
     ]))->toThrow(OrderCreationException::class);
 
     $this->assertDatabaseHas('products', ['id' => $product->id, 'stock' => 10]);

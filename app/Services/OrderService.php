@@ -13,10 +13,12 @@ use Illuminate\Support\Facades\DB;
 class OrderService
 {
     /**
-     * Create an order from a list of product and quantity pairs, reserving
-     * stock safely against concurrent requests for the same product.
+     * Create an order from a list of product SKU and quantity pairs,
+     * reserving stock safely against concurrent requests for the same
+     * product. Products are referenced by SKU, not the internal database
+     * id, since the id is never exposed outside the application.
      *
-     * @param array<int, array{product_id: int, quantity: int}> $items
+     * @param array<int, array{sku: string, quantity: int}> $items
      */
     public function createOrder(User $user, array $items): Order
     {
@@ -25,9 +27,9 @@ class OrderService
             $total = 0;
 
             foreach ($this->normalizeItems($items) as $item) {
-                // Locking product rows in a consistent order (ascending product_id)
+                // Locking product rows in a consistent order (ascending sku)
                 // stops two concurrent multi-item orders from deadlocking each other.
-                $product = Product::whereKey($item['product_id'])->lockForUpdate()->first();
+                $product = Product::where('sku', $item['sku'])->lockForUpdate()->first();
 
                 if (! $product) {
                     throw new OrderCreationException('One of the selected products no longer exists.');
@@ -82,11 +84,11 @@ class OrderService
     /**
      * Reject a request that lists the same product twice (a real cart already
      * merges duplicates before checkout, so this indicates a client bug rather
-     * than a valid order) and sort by product_id so product rows are always
-     * locked in the same order across requests.
+     * than a valid order) and sort by sku so product rows are always locked
+     * in the same order across requests.
      *
-     * @param array<int, array{product_id: int, quantity: int}> $items
-     * @return array<int, array{product_id: int, quantity: int}>
+     * @param array<int, array{sku: string, quantity: int}> $items
+     * @return array<int, array{sku: string, quantity: int}>
      */
     private function normalizeItems(array $items): array
     {
@@ -103,12 +105,12 @@ class OrderService
             }
         }
 
-        $productIds = array_column($items, 'product_id');
+        $skus = array_column($items, 'sku');
 
-        if (count($productIds) !== count(array_unique($productIds))) {
+        if (count($skus) !== count(array_unique($skus))) {
             throw new OrderCreationException('Each product can only appear once in an order request.');
         }
 
-        return collect($items)->sortBy('product_id')->values()->all();
+        return collect($items)->sortBy('sku')->values()->all();
     }
 }
