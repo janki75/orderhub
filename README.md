@@ -67,7 +67,7 @@ Out of scope: cancelling or refunding an order, payment gateway
 integration, product search and filtering, a frontend, and any admin or
 product management screen. Reasoning for each is below.
 
-## Assumptions and decisions
+## Assumptions
 
 **Order items store the price at the time of purchase.** `unit_price` on
 `order_items` is captured when the order is created and does not change if
@@ -87,6 +87,26 @@ re-listed item, so enforcing uniqueness on `name` would have been wrong.
 
 **No slug column.** A slug exists to give a public facing page a readable
 URL. There is no product page here, so there is nothing that would use one.
+
+**Orders have a generated `order_number`, separate from the database `id`.**
+The auto increment id should never be handed to a customer or support agent
+as a reference, since it exposes how many orders exist and is guessable.
+`order_number` is generated internally when the order is created and is not
+mass assignable, so it can only ever be set by the system, never by request
+input.
+
+**No subtotal, tax, shipping cost, or discount columns.** The feature
+currently does not cover tax, shipping, or discount logic, so these columns
+were left out rather than storing values that would always be zero.
+`total_amount` is the sum of the order items. This is a natural area to
+expand later, once pricing rules for tax jurisdictions, shipping rates, and
+discount validation are defined.
+
+**No shipping or billing address.** There is no shipping or fulfillment flow
+in this feature (no delivery status, no cancellation before shipping), so
+these fields would capture input that is never read or acted on again.
+Collecting address data without a feature that uses it is worse practice
+than leaving it out.
 
 **No cancel or refund flow.** Cancelling an order and restoring stock has
 its own state transitions and its own tests, and would not add anything new
@@ -121,14 +141,17 @@ the order) live somewhere that can be tested directly and reused if needed.
 typos or invalid status values ending up in the database, since the set of
 valid values is defined once in code.
 
-## Tests
+## How to run the tests
 
 To be filled in once the test suite is written. This section will explain
 how to run the tests and what each one is checking.
 
-## Limitations and future improvements
+## Limitations and improvements with more time
 
 - No order cancellation or refund flow.
 - No payment gateway integration (the queued job only simulates processing).
 - No product search, filtering, or admin management endpoints.
-- Single currency, no tax or discount handling.
+- Single currency, no tax, shipping cost, or discount handling. Adding this
+  would mean introducing pricing rules and new columns on the order (subtotal,
+  tax, shipping cost, discount) rather than deriving everything from
+  `total_amount`.
