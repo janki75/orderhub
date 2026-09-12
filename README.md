@@ -12,8 +12,8 @@ requests, and the tests that verify it.
 
 ## Tech stack
 
-Laravel 13, PHP 8.3, MySQL. The queue driver is `database`, so no extra
-infrastructure (like Redis) is needed to run it locally.
+Laravel 13, PHP 8.3, MySQL, Pest for tests. The queue driver is `database`,
+so no extra infrastructure (like Redis) is needed to run it locally.
 
 ## Setup and run
 
@@ -108,6 +108,12 @@ these fields would capture input that is never read or acted on again.
 Collecting address data without a feature that uses it is worse practice
 than leaving it out.
 
+**Each product_id in an order request is assumed to be unique.** It is
+assumed that the frontend or calling client already merges a repeated
+product into a single line with a combined quantity, the way a normal cart
+does before checkout. This API does not merge duplicate product_id entries
+itself, it rejects the request if the same product appears twice.
+
 **No cancel or refund flow.** Cancelling an order and restoring stock has
 its own state transitions and its own tests, and would not add anything new
 to the core problem this project demonstrates (safe concurrent inventory
@@ -141,10 +147,52 @@ the order) live somewhere that can be tested directly and reused if needed.
 typos or invalid status values ending up in the database, since the set of
 valid values is defined once in code.
 
+**Product rows are locked in a consistent order (ascending product_id)
+within a single order.** If two multi-item orders locked the same products
+in a different order from each other, they could deadlock. Sorting by
+product_id first means every request locks rows in the same sequence.
+
+**A product can only appear once per order request.** A real cart should 
+merge duplicate items into a single line with a combined quantity before
+checkout, so a request with the same product_id twice means the client has
+a bug, not a valid order. It is rejected rather than silently merged: once
+at the request validation layer (a distinct rule on items.*.product_id, so
+the caller gets a normal 422 validation error), and again inside the
+service itself as a safety net for any other caller that skips that
+validation.
+
+**Item quantity is checked to be at least 1 inside the service, not only in
+the FormRequest.** Eloquent's decrement() negates whatever value it is
+given, so a negative quantity that reached it would increase stock instead
+of reducing it. Since that is a real business rule violation and not just
+an input formatting issue, it is enforced in the service itself rather than
+relying only on request validation to catch it.
+
+**Business rule failures (inactive product, insufficient stock) throw a
+dedicated exception with its own render method**, rather than being handled
+with manual response building in the controller. This keeps the service
+focused on business logic while still returning a clear 422 with a specific
+message.
+
 ## How to run the tests
 
-To be filled in once the test suite is written. This section will explain
-how to run the tests and what each one is checking.
+```bash
+php artisan test
+```
+
+`tests/Feature/OrderServiceTest.php` covers the order creation logic
+directly: correct total calculation and stock decrement, the job being
+dispatched only after a successful order, insufficient stock, an inactive
+product, a full rollback when one item in a multi item order fails, and
+duplicate product lines being merged (and still checked against the real
+stock limit) instead of being validated separately.
+
+The lock itself (`lockForUpdate()` preventing two simultaneous requests from
+overselling the same product) is not exercised by an automated test, since
+simulating two real concurrent connections inside a single synchronous
+PHPUnit process is impractical. That part is verified by reading the code
+path rather than by a test.
+
 
 ## Limitations and improvements with more time
 

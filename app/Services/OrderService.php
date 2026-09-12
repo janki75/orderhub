@@ -90,6 +90,19 @@ class OrderService
      */
     private function normalizeItems(array $items): array
     {
+        if (empty($items)) {
+            throw new OrderCreationException('An order must contain at least one item.');
+        }
+
+        foreach ($items as $item) {
+            if ((int) ($item['quantity'] ?? 0) < 1) {
+                // Guarding this here, not just in the FormRequest, matters: Eloquent's
+                // decrement() negates whatever it is given, so a negative quantity
+                // would increase stock instead of decreasing it if it reached that far.
+                throw new OrderCreationException('Item quantity must be at least 1.');
+            }
+        }
+
         $productIds = array_column($items, 'product_id');
 
         if (count($productIds) !== count(array_unique($productIds))) {
