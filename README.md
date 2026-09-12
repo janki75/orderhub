@@ -1,58 +1,134 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# OrderHub
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## What this is
 
-## About Laravel
+OrderHub is an order processing API. An authenticated user creates an order
+from a set of products, the system validates stock, calculates the total,
+safely reserves the inventory, and processes the order asynchronously.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+The parts worth looking at closely are the order creation flow, in
+particular how stock is locked and decremented safely under concurrent
+requests, and the tests that verify it.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Tech stack
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Laravel 13, PHP 8.3, MySQL. The queue driver is `database`, so no extra
+infrastructure (like Redis) is needed to run it locally.
 
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Setup and run
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer install
+cp .env.example .env
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Set the database values in `.env` to match your local MySQL instance:
 
-## Contributing
+```
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=orderhub
+DB_USERNAME=your_username
+DB_PASSWORD=your_password
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Then:
 
-## Code of Conduct
+```bash
+php artisan key:generate
+php artisan migrate --seed
+php artisan serve
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+The seeder creates a demo user and 20 sample products, so there is data to
+work with right away. Order processing happens in a queued job, so run a
+worker in a separate terminal to see orders move from pending to completed:
 
-## Security Vulnerabilities
+```bash
+php artisan queue:work
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## API endpoints
 
-## License
+| Method | Endpoint              | Purpose                                      |
+|--------|------------------------|-----------------------------------------------|
+| GET    | `/api/products`        | List available products (paginated)          |
+| POST   | `/api/orders`          | Create an order from product and quantity pairs |
+| GET    | `/api/orders/{order}`  | View a single order (only the owner can see it) |
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## Scope
+
+Intentionally small and focused: order creation with safe inventory
+reservation, total calculation, asynchronous post-processing, ownership
+based authorization, and tests covering all of that.
+
+Out of scope: cancelling or refunding an order, payment gateway
+integration, product search and filtering, a frontend, and any admin or
+product management screen. Reasoning for each is below.
+
+## Assumptions and decisions
+
+**Order items store the price at the time of purchase.** `unit_price` on
+`order_items` is captured when the order is created and does not change if
+the product's price changes later. An order should always show what the
+customer actually paid, not today's price.
+
+**Products cannot be deleted while orders reference them.** The foreign key
+from `order_items` to `products` is not set to cascade on delete, so a
+product that appears in a past order cannot be hard deleted. That protects
+order history from silently losing data.
+
+**SKU is the unique identifier for a product, not the name.** Product names
+can legitimately repeat, for example two different variants or a
+re-listed item, so enforcing uniqueness on `name` would have been wrong.
+`sku` is the real business key: restocking a product means increasing the
+`stock` value on the existing SKU, not creating a new row.
+
+**No slug column.** A slug exists to give a public facing page a readable
+URL. There is no product page here, so there is nothing that would use one.
+
+**No cancel or refund flow.** Cancelling an order and restoring stock has
+its own state transitions and its own tests, and would not add anything new
+to the core problem this project demonstrates (safe concurrent inventory
+handling). Noted as a future improvement instead.
+
+**No payment gateway.** Order processing is simulated inside a queued job
+(for example, marking the order as completed). A real payment provider is
+unrelated to the core problem here.
+
+## Key technical decisions
+
+**Stock is checked and decremented inside a database transaction, using a
+row lock (`lockForUpdate()`) on the product.** This is what prevents two
+simultaneous orders for the last unit of a product from both succeeding.
+Without the lock, both requests could read the same stock value before
+either one writes back, and the store would oversell.
+
+**Stock changes happen synchronously, only the follow up processing is
+asynchronous.** If the stock decrement itself were pushed onto a queue, two
+requests could both pass validation before either job actually runs, which
+brings back the exact overselling problem the locking is meant to solve. So
+the transaction and the lock happen inside the request, and only the non
+critical work (like marking the order completed) is deferred to a job.
+
+**Order creation logic lives in a service class, not the controller.** This
+keeps the controller focused on handling the HTTP request and response,
+while the business rules (validating stock, calculating totals, creating
+the order) live somewhere that can be tested directly and reused if needed.
+
+**Order status is a backed PHP enum, not a plain string.** This avoids
+typos or invalid status values ending up in the database, since the set of
+valid values is defined once in code.
+
+## Tests
+
+To be filled in once the test suite is written. This section will explain
+how to run the tests and what each one is checking.
+
+## Limitations and future improvements
+
+- No order cancellation or refund flow.
+- No payment gateway integration (the queued job only simulates processing).
+- No product search, filtering, or admin management endpoints.
+- Single currency, no tax or discount handling.
