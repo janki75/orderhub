@@ -228,15 +228,24 @@ php artisan test
 `tests/Feature/OrderServiceTest.php` covers the order creation logic
 directly: correct total calculation and stock decrement, the job being
 dispatched only after a successful order, insufficient stock, an inactive
-product, a full rollback when one item in a multi item order fails, and
-duplicate product lines being merged (and still checked against the real
-stock limit) instead of being validated separately.
+product, a full rollback when one item in a multi item order fails, a
+duplicate sku being rejected, an empty item list, and a zero or negative
+quantity.
 
 The lock itself (`lockForUpdate()` preventing two simultaneous requests from
 overselling the same product) is not exercised by an automated test, since
 simulating two real concurrent connections inside a single synchronous
 PHPUnit process is impractical. That part is verified by reading the code
 path rather than by a test.
+
+`tests/Feature/AuthTest.php`, `ProductApiTest.php`, and `OrderApiTest.php`
+cover the HTTP layer on top of that: a guest is rejected with 401 on every
+protected route, login succeeds or fails correctly, order creation
+validation errors surface as normal 422 responses (empty items, duplicate
+sku, non positive quantity, unknown sku), an insufficient stock error
+surfaces as a clear message, a user can view their own order by
+order_number, a user gets 403 viewing someone else's order, a nonexistent
+order_number returns 404, and no response ever exposes an internal id.
 
 
 ## Limitations and improvements with more time
